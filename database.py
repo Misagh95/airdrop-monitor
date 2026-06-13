@@ -1,13 +1,41 @@
 """مدیریت دیتابیس SQLite برای ذخیره منابع و وضعیت"""
 import sqlite3
+import os
+import tempfile
 from datetime import datetime, timedelta
+
+
+def _find_writable_path(requested_path: str) -> str:
+    """پیدا کردن مسیری که قابل نوشتن است."""
+    candidates = [requested_path, "/tmp/data.db", "data.db"]
+    for path in candidates:
+        if not path or path == ":memory:":
+            continue
+        try:
+            # تلاش برای ساختن فایل تست
+            d = os.path.dirname(path) or "."
+            os.makedirs(d, exist_ok=True)
+            test_file = path + ".test"
+            with open(test_file, "w") as f:
+                f.write("ok")
+            os.remove(test_file)
+            return path
+        except Exception:
+            continue
+    # اگر هیچ مسیری کار نکرد، از :memory: استفاده کن
+    return ":memory:"
 
 
 class Database:
     def __init__(self, path="data.db"):
-        self.conn = sqlite3.connect(path, check_same_thread=False)
+        # مسیر قابل نوشتن پیدا کن
+        self.path = _find_writable_path(path)
+        self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_tables()
+        if self.path == ":memory:":
+            import logging
+            logging.warning("⚠️ دیتابیس در حافظه اجرا می‌شود — داده‌ها موقع ری‌استرت از بین می‌روند")
 
     def _init_tables(self):
         self.conn.executescript(
