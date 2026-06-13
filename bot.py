@@ -52,6 +52,22 @@ user_states: dict[int, str] = {}       # chat_id → conversation state
 feed_health: dict[str, dict] = {}       # name → {last_check, ok, error}
 admin_states: dict[int, str] = {}       # chat_id → admin conversation state (e.g. "awaiting_admin_id")
 
+# ── ضد-اسپم: کش پیام‌های اخیر برای جلوگیری از تکرار ──
+recent_content_hashes: dict[str, float] = {}  # hash → timestamp
+DEDUP_WINDOW = 3600  # ۱ ساعت
+
+# ── کلمات کلیدی مهم برای تشخیص اهمیت پست ──
+HIGH_PRIORITY_KEYWORDS = [
+    "airdrop", "claim", "snapshot", "tge", "listing", "token launch",
+    "free mint", "reward", "whitelist", "wl", "early access",
+    "connect wallet", "mainnet", "genesis", "drop", "retroactive",
+    "free", "allocation", "eligib",
+]
+MEDIUM_PRIORITY_KEYWORDS = [
+    "update", "announcement", "launch", "bridge", "swap", "testnet",
+    "mainnet", "phase", "season", "task", "quest", "complete",
+]
+
 # منابع پیش‌فرض کاربر
 DEFAULT_SOURCES = {
     "telegram": [
@@ -117,6 +133,42 @@ def clean_html(text: str) -> str:
     text = re.sub(r"&quot;", '"', text)
     text = re.sub(r"&#39;", "'", text)
     return text.strip()
+
+
+def _content_hash(text: str) -> str:
+    """هش محتوا برای تشخیص پیام‌های تکراری."""
+    import hashlib
+    cleaned = re.sub(r"https?://\S+", "", text.lower())
+    cleaned = re.sub(r"[^\w]", "", cleaned)
+    return hashlib.md5(cleaned.encode()).hexdigest()
+
+
+def _is_duplicate(text: str) -> bool:
+    """بررسی اینکه آیا این محتوا اخیراً ارسال شده است."""
+    now = datetime.now().timestamp()
+    h = _content_hash(text)
+
+    expired = [k for k, v in recent_content_hashes.items() if now - v > DEDUP_WINDOW]
+    for k in expired:
+        del recent_content_hashes[k]
+
+    if h in recent_content_hashes:
+        return True
+
+    recent_content_hashes[h] = now
+    return False
+
+
+def _detect_priority(text: str) -> str:
+    """تشخیص اهمیت پست. خروجی: '🔴' (بالا)، '🟡' (متوسط)، '⚪' (عادی)"""
+    text_lower = text.lower()
+    for kw in HIGH_PRIORITY_KEYWORDS:
+        if kw in text_lower:
+            return "🔴"
+    for kw in MEDIUM_PRIORITY_KEYWORDS:
+        if kw in text_lower:
+            return "🟡"
+    return "⚪"
 
 
 async def check_feed(bot, src_type: str, name: str, first_run: bool = False):
@@ -198,7 +250,7 @@ async def check_feed(bot, src_type: str, name: str, first_run: bool = False):
 
 
 async def feed_loop(bot):
-    """حلقه‌ی اصلی مانیتور — همه منابع را هر چند دقیقه چک می‌کند."""
+    """حلقه‌ی اصلی مانیتور — تلگرام و توییتر را جداگانه چک می‌کند."""
     await asyncio.sleep(5)  # تأخیر اولیه
     prune_counter = 0
     first_run = True
@@ -208,8 +260,12 @@ async def feed_loop(bot):
             sources = db.get_sources(active_only=True)
             for src_type, name, _, _, _, _ in sources:
                 await check_feed(bot, src_type, name, first_run=first_run)
-                await asyncio.sleep(1)  # مکث بین منابع
-            first_run = False  # بعد از اولین دور، پیام‌های جدید رو بفرست
+                # تأخیر بیشتر برای توییتر (جلوگیری از rate-limit)
+                if src_type == "twitter":
+                    await asyncio.sleep(3)
+                else:
+                    await asyncio.sleep(1)
+            first_run = False
         except Exception as e:
             logger.error(f"خطا در حلقه مانیتور: {e}")
 
@@ -226,6 +282,14 @@ async def feed_loop(bot):
 # ════════════════════════════════════════════════════
 async def send_notification(bot, source_label: str, original_text: str, source_url: str):
     """ترجمه کن و پیام را برای مالک و ادمین‌ها بفرست."""
+    # ── ضد-اسپم: اگر محتوای مشابه اخیراً ارسال شده، رد کن ──
+    if _is_duplicate(original_text):
+        logger.info(f"⏭️ پیام تکراری رد شد")
+        return
+
+    # ── تشخیص اهمیت ──
+    priority = _detect_priority(original_text)
+
     # جمع‌آوری گیرنده‌ها: مالک + ادمین‌ها
     recipients = []
     if owner_chat_id:
@@ -250,7 +314,7 @@ async def send_notification(bot, source_label: str, original_text: str, source_u
 
     message = (
         f"{'━' * 22}\n"
-        f"🆕 {source_label}\n"
+        f"{priority} {source_label}\n"
         f"{'━' * 22}\n\n"
         f"📝 متن اصلی:\n{orig_show}\n\n"
         f"{'─' * 22}\n"
@@ -258,6 +322,7 @@ async def send_notification(bot, source_label: str, original_text: str, source_u
         f"🔗 {source_url}"
     )
 
+    success = False
     for chat_id in recipients:
         try:
             await bot.send_message(
@@ -265,8 +330,12 @@ async def send_notification(bot, source_label: str, original_text: str, source_u
                 text=message,
                 disable_web_page_preview=True,
             )
+            success = True
         except Exception as e:
             logger.error(f"ارسال پیام به {chat_id} ناموفق: {e}")
+
+    if success:
+        db.increment_daily_stat()
 
 
 # ════════════════════════════════════════════════════
@@ -581,6 +650,7 @@ async def show_status(update: Update):
     lines.append(f"📢 کانال‌های تلگرام: {len(tg_sources)}")
     lines.append(f"🐦 اکانت‌های توییتر: {len(tw_sources)}")
     lines.append(f"📨 پیام‌های پردازش‌شده: {db.seen_count()}")
+    lines.append(f"📤 هشدارهای امروز: {db.get_daily_stat()}")
 
     if feed_health:
         lines.append("\n📡 وضعیت آخرین بررسی منابع:")
@@ -600,7 +670,12 @@ async def do_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "the testnet tasks to qualify. Snapshot is happening soon. Don't miss out!",
         "https://example.com",
     )
-    await update.effective_message.reply_text("✅ پیام تست ارسال شد.", reply_markup=main_menu())
+    await update.effective_message.reply_text(
+        "✅ پیام تست ارسال شد.\n\n"
+        "💡 این پیام باید علامت 🔴 (اولویت بالا) داشته باشد\n"
+        "چون کلمات کلیدی airdrop, claim, snapshot دارد.",
+        reply_markup=main_menu(),
+    )
 
 
 # ════════════════════════════════════════════════════
@@ -719,6 +794,8 @@ async def show_help(update: Update):
         "• 🐦 اکانت توییتر — `x.com/...`\n\n"
         "💡 نکات:\n"
         "• هر پست جدید با ترجمه فارسی ارسال می‌شود\n"
+        "• 🔴 اولویت بالا | 🟡 متوسط | ⚪ عادی\n"
+        "• پیام‌های تکراری از منابع مختلف فقط یک‌بار ارسال می‌شوند\n"
         "• می‌توانید هشدارها را موقتاً متوقف کنید\n"
         "• برای افزودن سریع: `/add https://t.me/name`"
     )

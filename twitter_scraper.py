@@ -8,6 +8,7 @@
 import re
 import json
 import logging
+import asyncio
 import urllib.parse
 from datetime import datetime
 
@@ -80,12 +81,10 @@ async def _graphql_get(session: aiohttp.ClientSession, url: str, guest_token: st
     """
     انجام درخواست GraphQL با مدیریت خطای guest token.
     خروجی: (data, valid_guest_token)
-    در صورت rate-limit، تا ۳ بار با تأخیر تصاعدی امتحان می‌کند.
+    در صورت rate-limit، تا ۴ بار با تأخیر تصاعدی امتحان می‌کند.
     """
-    import asyncio as _aio
-
-    max_retries = 3
-    delay = 3
+    max_retries = 4
+    delay = 5
 
     for attempt in range(max_retries):
         headers = {**HEADERS, "x-guest-token": guest_token}
@@ -94,10 +93,10 @@ async def _graphql_get(session: aiohttp.ClientSession, url: str, guest_token: st
                 return await resp.json(), guest_token
 
             if resp.status in (403, 429) and attempt < max_retries - 1:
-                logger.debug(f"GraphQL {resp.status} (تلاش {attempt+1}) — بازخوانی guest token، صبر {delay}s")
-                await _aio.sleep(delay)
+                logger.debug(f"GraphQL {resp.status} (تلاش {attempt+1}/{max_retries}) — صبر {delay}s")
+                await asyncio.sleep(delay)
                 guest_token = await _get_guest_token(session)
-                delay *= 2  # تأخیر تصاعدی
+                delay *= 2
                 continue
 
             body = await resp.text()
@@ -114,8 +113,6 @@ async def fetch_tweets(handle: str, rsshub_url: str = "", timeout: int = 20) -> 
 
     خروجی: [{id, text, link, timestamp}]
     """
-    import asyncio as _aio
-
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
 
     async with aiohttp.ClientSession(timeout=timeout_obj, headers=HEADERS) as session:
@@ -145,7 +142,7 @@ async def fetch_tweets(handle: str, rsshub_url: str = "", timeout: int = 20) -> 
                 raise Exception(f"اکانت @{handle} پیدا نشد")
             _user_id_cache[handle] = user_id
             # بعد از UserByScreenName، guest token ممکن است نامعتبر شود
-            await _aio.sleep(1)
+            await asyncio.sleep(1)
             guest_token = await _get_guest_token(session)
 
         user_id = _user_id_cache[handle]

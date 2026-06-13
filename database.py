@@ -105,6 +105,20 @@ class Database:
     def seen_count(self):
         return self.conn.execute("SELECT COUNT(*) FROM seen").fetchone()[0]
 
+    def get_daily_stat(self):
+        """آمار امروز: چند هشدار ارسال شده."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        val = self.get_meta(f"daily_sent_{today}")
+        return int(val) if val else 0
+
+    def increment_daily_stat(self):
+        """افزایش شمارنده هشدارهای امروز."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        key = f"daily_sent_{today}"
+        current = int(self.get_meta(key) or "0")
+        self.set_meta(key, str(current + 1))
+        return current + 1
+
     # ---- Sources ----
     def get_sources(self, source_type=None, active_only=False):
         query = "SELECT type, name, url, entity_id, active, added_at FROM sources"
