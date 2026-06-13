@@ -1,0 +1,31 @@
+# ⚠️ فایل‌های حساس — هرگز آپلود نشن!
+.env
+*.session
+*.session-journal
+
+# دیتابیس
+*.db
+*.db-wal
+*.db-shm
+
+# پایتون
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# سیستم‌عامل
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# تصاویر آپلود شده کاربر
+uploads/
