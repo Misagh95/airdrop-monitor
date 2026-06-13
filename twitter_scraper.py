@@ -4,9 +4,17 @@
 
 این روش رایگان و بدون نیاز به کلید API است.
 بر اساس همان مکانیزمی که خود توییتر/X در مرورگر استفاده می‌کند.
+
+قابلیت‌ها:
+- چندین بار retry با تأخیر تصاعدی
+- User-Agent واقعی مرورگر
+- User-Agent چرخشی برای کاهش ریسک مسدودی
+- کش user_id برای کاهش درخواست
 """
+
 import re
 import json
+import random
 import logging
 import asyncio
 import urllib.parse
@@ -16,22 +24,46 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-# این Bearer Token عمومی توییتر است (در کلاینت وب استفاده می‌شود)
+# Bearer Token عمومی توییتر (در کلاینت وب استفاده می‌شود)
 BEARER_TOKEN = (
     "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D"
     "1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 )
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "*/*",
-    "Authorization": f"Bearer {BEARER_TOKEN}",
-    "x-twitter-active-user": "yes",
-    "x-twitter-client-language": "en",
-}
+# چند User-Agent مختلف برای چرخش
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+]
 
-# Cache برای user_id (نام اکانت → ID)
+
+def _make_headers(guest_token: str = "") -> dict:
+    """ساخت هدرهای واقعی مرورگر."""
+    headers = {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Authorization": f"Bearer {BEARER_TOKEN}",
+        "x-twitter-active-user": "yes",
+        "x-twitter-client-language": "en",
+        "sec-ch-ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "referer": "https://x.com/",
+        "origin": "https://x.com",
+    }
+    if guest_token:
+        headers["x-guest-token"] = guest_token
+    return headers
+
+
+# Cache برای user_id
 _user_id_cache: dict[str, str] = {}
 
 
@@ -70,8 +102,10 @@ def _clean_tweet_text(text: str) -> str:
 
 async def _get_guest_token(session: aiohttp.ClientSession) -> str:
     """دریافت Guest Token تازه از توییتر."""
+    headers = _make_headers()
     async with session.post(
-        "https://api.twitter.com/1.1/guest/activate.json"
+        "https://api.twitter.com/1.1/guest/activate.json",
+        headers=headers,
     ) as resp:
         data = await resp.json()
         return data["guest_token"]
@@ -80,42 +114,42 @@ async def _get_guest_token(session: aiohttp.ClientSession) -> str:
 async def _graphql_get(session: aiohttp.ClientSession, url: str, guest_token: str) -> tuple[dict, str]:
     """
     انجام درخواست GraphQL با مدیریت خطای guest token.
-    خروجی: (data, valid_guest_token)
-    در صورت rate-limit، تا ۴ بار با تأخیر تصاعدی امتحان می‌کند.
+    در صورت rate-limit، تا ۵ بار با تأخیر تصاعدی امتحان می‌کند.
     """
-    max_retries = 4
-    delay = 5
+    max_retries = 5
+    delay = 8
 
     for attempt in range(max_retries):
-        headers = {**HEADERS, "x-guest-token": guest_token}
+        headers = _make_headers(guest_token)
         async with session.get(url, headers=headers) as resp:
             if resp.status == 200:
                 return await resp.json(), guest_token
 
             if resp.status in (403, 429) and attempt < max_retries - 1:
-                logger.debug(f"GraphQL {resp.status} (تلاش {attempt+1}/{max_retries}) — صبر {delay}s")
-                await asyncio.sleep(delay)
+                logger.debug(
+                    f"Twitter GraphQL {resp.status} "
+                    f"(تلاش {attempt+1}/{max_retries}) — صبر {delay}s"
+                )
+                await asyncio.sleep(delay + random.uniform(0, 3))  # تأخیر تصادفی
                 guest_token = await _get_guest_token(session)
-                delay *= 2
+                delay = min(delay * 2, 60)  # حداکثر ۶۰ ثانیه
                 continue
 
             body = await resp.text()
-            raise Exception(f"HTTP {resp.status}: {body[:100]}")
+            raise Exception(f"HTTP {resp.status}: {body[:80]}")
 
     raise Exception(f"بعد از {max_retries} تلاش ناموفق بود")
 
 
-async def fetch_tweets(handle: str, rsshub_url: str = "", timeout: int = 20) -> list[dict]:
+async def fetch_tweets(handle: str, rsshub_url: str = "", timeout: int = 45) -> list[dict]:
     """
     دریافت آخرین توییت‌های یک اکانت توییتر/X.
-
-    از GraphQL API توییتر با Guest Token استفاده می‌کند (رایگان، بدون کلید).
 
     خروجی: [{id, text, link, timestamp}]
     """
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
 
-    async with aiohttp.ClientSession(timeout=timeout_obj, headers=HEADERS) as session:
+    async with aiohttp.ClientSession(timeout=timeout_obj) as session:
         # 1. Guest token تازه
         guest_token = await _get_guest_token(session)
 
@@ -141,8 +175,7 @@ async def fetch_tweets(handle: str, rsshub_url: str = "", timeout: int = 20) -> 
             if not user_id:
                 raise Exception(f"اکانت @{handle} پیدا نشد")
             _user_id_cache[handle] = user_id
-            # بعد از UserByScreenName، guest token ممکن است نامعتبر شود
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             guest_token = await _get_guest_token(session)
 
         user_id = _user_id_cache[handle]
@@ -193,12 +226,11 @@ async def fetch_tweets(handle: str, rsshub_url: str = "", timeout: int = 20) -> 
 
             if not text or not tid:
                 continue
-            if text.startswith("RT @"):  # رد کردن retweet
+            if text.startswith("RT @"):
                 continue
 
             text = _clean_tweet_text(text)
 
-            # timestamp
             created_at = legacy.get("created_at", "")
             timestamp = ""
             if created_at:
