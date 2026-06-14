@@ -92,13 +92,14 @@ def init_sources():
             db.add_source("twitter", name, f"https://x.com/{name}")
         logger.info("🎯 منابع طلایی Galxe و CryptoRank به دیتابیس اضافه شدند.")
         def init_sources():
-            
     if not db.get_sources():
-        for name in DEFAULT_SOURCES["telegram"]:
+        telegrams = ["CryptoRank_Drops", "CryptoRank_News", "Galxe_Official"]
+        twitters = ["CryptoRank_io", "Galxe"]
+        
+        for name in telegrams:
             db.add_source("telegram", name, f"https://t.me/{name}")
-        for name in DEFAULT_SOURCES["twitter"]:
+        for name in twitters:
             db.add_source("twitter", name, f"https://x.com/{name}")
-        logger.info("منابع پیش‌فرض اضافه شدند.")
 
 def load_state():
     global owner_chat_id, notifications_paused
