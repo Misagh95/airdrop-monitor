@@ -78,6 +78,21 @@ DEFAULT_SOURCES = {
 # ════════════════════════════════════════════════════
 def init_sources():
     if not db.get_sources():
+        # منابع پیش‌فرض قبلی + منابع جدید شما
+        telegrams = [
+            "shadatofficialYT", "airdropfind", "CryptoRank_Drops", "CryptoRank_News", "Galxe_Official"
+        ]
+        twitters = [
+            "rajib9336", "Airdropinsider_", "CryptoRank_io", "Galxe"
+        ]
+        
+        for name in telegrams:
+            db.add_source("telegram", name, f"https://t.me/{name}")
+        for name in twitters:
+            db.add_source("twitter", name, f"https://x.com/{name}")
+        logger.info("🎯 منابع طلایی Galxe و CryptoRank به دیتابیس اضافه شدند.")
+        def init_sources():
+    if not db.get_sources():
         for name in DEFAULT_SOURCES["telegram"]:
             db.add_source("telegram", name, f"https://t.me/{name}")
         for name in DEFAULT_SOURCES["twitter"]:
