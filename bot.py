@@ -91,8 +91,7 @@ def init_sources():
         for name in twitters:
             db.add_source("twitter", name, f"https://x.com/{name}")
         logger.info("🎯 منابع طلایی Galxe و CryptoRank به دیتابیس اضافه شدند.")
-        def init_sources():
-    if not db.get_sources():
+if not db.get_sources():
         telegrams = ["CryptoRank_Drops", "CryptoRank_News", "Galxe_Official"]
         twitters = ["CryptoRank_io", "Galxe"]
         
