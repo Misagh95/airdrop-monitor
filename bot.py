@@ -78,35 +78,40 @@ DEFAULT_SOURCES = {
 # ════════════════════════════════════════════════════
 def init_sources():
     if not db.get_sources():
-        # منابع پیش‌فرض قبلی + منابع جدید شما
+        # لیست کامل کانال‌های تلگرامی (منابع خودت + منابع جدید تخصصی)
         telegrams = [
-            "shadatofficialYT", "airdropfind", "CryptoRank_Drops", "CryptoRank_News", "Galxe_Official"
+            "shadatofficialYT",   # منبع خودت
+            "airdropfind",        # منبع خودت
+            "CryptoRank_Drops",   # دکمه شکار ایردراپ کریپتورنک
+            "CryptoRank_News",    # اخبار جذب سرمایه پروژه‌ها
+            "Galxe_Official",     # کانال رسمی گلکس
+            "Galxe_Answers",      # پاسخ‌نامه‌های کوئیز گلکس
+            "Crypto_Quests",      # مانیتورینگ کمپین‌های پلتفرم‌ها
+            "AirdropAlert",       # ددلاین‌ها و زمان‌بندی ایردراپ‌ها
+            "AirdropStash",       # تست‌نت‌ها و مراجع اصلی وب۳
+            "AirdropRating"       # امتیازدهی و فاندامنتال پروژه‌ها
         ]
+        
+        # لیست کامل اکانت‌های توییتر (منابع خودت + منابع جدید تخصصی)
         twitters = [
-            "rajib9336", "Airdropinsider_", "CryptoRank_io", "Galxe"
+            "rajib9336",          # منبع خودت
+            "Airdropinsider_",    # منبع خودت
+            "CryptoRank_io",      # توییتر اصلی کریپتورنک
+            "Galxe",              # توییتر اصلی گلکس
+            "Airdrop_Oasis",      # ترد نویس و راهنمای گام‌به‌گام
+            "WatcherGuru",        # اخبار فوری و اسنپ‌شات‌ها
+            "ZombitCrypto"        # مانیتورینگ دقیق‌تر جذب سرمایه
         ]
         
+        # تزریق خودکار کانال‌های تلگرام به دیتابیس ربات
         for name in telegrams:
             db.add_source("telegram", name, f"https://t.me/{name}")
+            
+        # تزریق خودکار اکانت‌های توییتر به دیتابیس ربات
         for name in twitters:
             db.add_source("twitter", name, f"https://x.com/{name}")
-        logger.info("🎯 منابع طلایی Galxe و CryptoRank به دیتابیس اضافه شدند.")
-if not db.get_sources():
-        telegrams = ["CryptoRank_Drops", "CryptoRank_News", "Galxe_Official"]
-        twitters = ["CryptoRank_io", "Galxe"]
-        
-        for name in telegrams:
-            db.add_source("telegram", name, f"https://t.me/{name}")
-        for name in twitters:
-            db.add_source("twitter", name, f"https://x.com/{name}")
-
-def load_state():
-    global owner_chat_id, notifications_paused
-    stored_owner = db.get_meta("owner_chat_id")
-    if stored_owner:
-        owner_chat_id = int(stored_owner)
-    if db.get_meta("notifications_paused") == "1":
-        notifications_paused = True
+            
+        logger.info("🎯 لیست جامع منابع (شامل منابع شخصی، کریپتورنک و گلکس) با موفقیت هماهنگ و ذخیره شد.")
 
 # ════════════════════════════════════════════════════
 #  RSS FETCHING & MONITORING
