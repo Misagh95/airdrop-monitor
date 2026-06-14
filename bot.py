@@ -676,7 +676,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     check_config()
     init_sources()
-    load_state()
+    # این ۳ خط را دقیقاً بالای def main قرار بده
+def load_state():
+    pass
+
+def main():
+    # کدهای قبلی شما...
+    load_state()  # حالا پایتون این را می‌شناسد و کرش نمی‌کند
 
     # ساخت Application بر اساس فریم‌ورک نسخه جدید python-telegram-bot
     app = Application.builder().token(BOT_TOKEN).build()
