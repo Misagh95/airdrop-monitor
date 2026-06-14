@@ -92,6 +92,7 @@ def init_sources():
             db.add_source("twitter", name, f"https://x.com/{name}")
         logger.info("🎯 منابع طلایی Galxe و CryptoRank به دیتابیس اضافه شدند.")
         def init_sources():
+            
     if not db.get_sources():
         for name in DEFAULT_SOURCES["telegram"]:
             db.add_source("telegram", name, f"https://t.me/{name}")
